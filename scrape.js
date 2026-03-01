@@ -3,27 +3,37 @@ const { chromium } = require('playwright');
 async function scrapeAndSumTables(url) {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
-  await page.goto(url);
+  await page.goto(url, { waitUntil: 'networkidle' });
   
-  // Wait for tables to fully load (dynamic content)
-  await page.waitForSelector('table', { timeout: 10000 });
+  // Aggressive wait for dynamic tables
+  await page.waitForSelector('table', { timeout: 20000 });
+  await page.waitForTimeout(3000);
   
-  // Find all table cells, extract numbers only (ignores text)
   const numbers = await page.evaluate(() => {
-    const cells = document.querySelectorAll('table td, table th');
-    return Array.from(cells)
-      .map(cell => parseFloat(cell.textContent.trim()))
-      .filter(num => !isNaN(num));
+    // Grab ALL text in tables, extract every number with regex
+    const tableElements = document.querySelectorAll('table *');
+    let allText = '';
+    tableElements.forEach(el => {
+      allText += el.textContent + ' ';
+    });
+    // Regex: any number like 123, 123.45, -1.2
+    const matches = allText.match(/-?\d*\.?\d+/g) || [];
+    return matches.map(n => parseFloat(n)).filter(n => !isNaN(n));
   });
   
-  const pageSum = numbers.reduce((acc, num) => acc + num, 0);
+  const pageSum = numbers.reduce((acc, num) => acc + num, 0, 0);
   await browser.close();
+  console.log(`URL: ${url}`);
+  console.log(`Numbers found: ${numbers.length}`);
+  console.log(`Page sum: ${pageSum}`);
   return pageSum;
 }
 
 async function main() {
+  console.log('Starting scrape...');
   const urls = [
     'https://sanand0.github.io/tdsdata/js_table/?seed=31',
+    // ... all 10 URLs from before
     'https://sanand0.github.io/tdsdata/js_table/?seed=32',
     'https://sanand0.github.io/tdsdata/js_table/?seed=33',
     'https://sanand0.github.io/tdsdata/js_table/?seed=34',
@@ -37,12 +47,20 @@ async function main() {
   
   let grandTotal = 0;
   for (const url of urls) {
-    const sum = await scrapeAndSumTables(url);
-    console.log(`Sum for ${url}: ${sum}`);
-    grandTotal += sum;
+    try {
+      const sum = await scrapeAndSumTables(url);
+      grandTotal += sum;
+    } catch (error) {
+      console.log(`Error on ${url}: ${error.message}`);
+    }
   }
   
-  console.log(`GRAND TOTAL SUM OF ALL TABLES: ${grandTotal}`);
+  console.log('');
+  console.log('=== GRAND TOTAL SUM OF ALL TABLES ACROSS ALL PAGES: ' + grandTotal + ' ===');
+  console.log('Copy this number for your assignment!');
 }
 
-main().catch(console.error);
+main().catch(err => {
+  console.error('Fatal error:', err);
+  process.exit(1);
+});
